@@ -27,6 +27,7 @@
 		},
 		destroy: function () {
 			if (state.unhook) state.unhook();
+			if (state.unhookFeed) state.unhookFeed();
 			clearTaxi();
 			stopAtc();
 			state.overlays.forEach(function (o) { o.setMap(null); });
@@ -70,6 +71,70 @@
 			};
 		});
 		state.unhook = restore;
+	}
+
+	// Aircraft Flightradar24 is currently drawing, by callsign, read from the
+	// map's own LiveFeed responses (gRPC-web protobuf). Field numbers were
+	// worked out from live responses: 2 lat, 3 lon, 4 track, 5 altitude (ft),
+	// 6 ground speed (kt), 11 callsign.
+	var feed = {};
+
+	function readVarint(b, p) {
+		var v = 0, s = 0, c;
+		do { c = b[p.i++]; v += (c & 0x7f) * Math.pow(2, s); s += 7; } while (c & 0x80 && p.i < b.length);
+		return v;
+	}
+
+	function protoFields(b, start, end, cb) {
+		var p = { i: start };
+		while (p.i < end) {
+			var key = readVarint(b, p), f = Math.floor(key / 8), wt = key & 7;
+			if (wt === 0) cb(f, wt, readVarint(b, p));
+			else if (wt === 5) { cb(f, wt, new DataView(b.buffer, b.byteOffset + p.i, 4).getFloat32(0, true)); p.i += 4; }
+			else if (wt === 1) p.i += 8;
+			else if (wt === 2) { var len = readVarint(b, p); cb(f, wt, [p.i, p.i + len]); p.i += len; }
+			else return;
+		}
+	}
+
+	function readLiveFeed(buf) {
+		var b = new Uint8Array(buf), i = 0, now = Date.now();
+		while (i + 5 <= b.length) {
+			var flag = b[i], len = new DataView(b.buffer, i + 1, 4).getUint32(0);
+			if (!(flag & 0x80)) protoFields(b, i + 5, i + 5 + len, function (f, wt, range) {
+				if (f !== 1 || wt !== 2) return;
+				var r = {};
+				protoFields(b, range[0], range[1], function (g, wt2, v) {
+					if (wt2 === 2) { if (g === 11) r.callsign = new TextDecoder().decode(b.subarray(v[0], v[1])); }
+					else r[g] = v;
+				});
+				if (r.callsign && typeof r[2] === "number") {
+					feed[r.callsign] = { flight: r.callsign, lat: r[2], lon: r[3], track: r[4], gs: r[6] || 0,
+						alt_baro: r[5] ? r[5] : "ground", seen: now };
+				}
+			});
+			i += 5 + len;
+		}
+	}
+
+	function hookLiveFeed() {
+		var proto = XMLHttpRequest.prototype, open = proto.open;
+		proto.open = function (method, url) {
+			if (String(url).indexOf("Feed/LiveFeed") >= 0) {
+				this.addEventListener("load", function () {
+					try { if (this.response instanceof ArrayBuffer) readLiveFeed(this.response); } catch (e) { /* format changed; fall back to airplanes.live */ }
+				});
+			}
+			return open.apply(this, arguments);
+		};
+		state.unhookFeed = function () { proto.open = open; state.unhookFeed = null; };
+	}
+	hookLiveFeed();
+
+	function feedAircraft() {
+		var now = Date.now();
+		return Object.keys(feed).map(function (k) { return feed[k]; })
+			.filter(function (a) { return now - a.seen < 60000; });
 	}
 
 	function el(tag, attrs, children) {
@@ -259,15 +324,32 @@
 
 	// Transcribed or typed flight numbers are often one digit off; accept a
 	// unique near match from the same airline.
-	function findAircraft(list, callsign) {
+	function findAircraft(list, callsign, exactOnly) {
 		var ids = function (a) { return [(a.flight || "").trim().toUpperCase(), (a.r || "").replace(/-/g, "").toUpperCase()]; };
 		var exact = list.filter(function (a) { return ids(a).indexOf(callsign) >= 0; });
 		if (exact.length) return { ac: exact[0], exact: true };
+		if (exactOnly) return null;
 		var near = list.filter(function (a) {
 			var f = ids(a)[0];
 			return f && f.slice(0, 3) === callsign.slice(0, 3) && editDistance(f, callsign) === 1;
 		});
 		return near.length === 1 ? { ac: near[0], exact: false } : null;
+	}
+
+	// Prefer what Flightradar24 is drawing; airplanes.live covers aircraft
+	// outside the current view. An exact callsign from either source beats a near match.
+	function locate(airport, callsign) {
+		var onMap = feedAircraft();
+		var hit = findAircraft(onMap, callsign, true);
+		if (hit) return Promise.resolve(Object.assign(hit, { source: "Flightradar24" }));
+		return fetchAircraft(airport).catch(function () { return []; }).then(function (list) {
+			var h = findAircraft(list, callsign, true);
+			if (h) return Object.assign(h, { source: "airplanes.live" });
+			h = findAircraft(onMap, callsign);
+			if (h) return Object.assign(h, { source: "Flightradar24" });
+			h = findAircraft(list, callsign);
+			return h ? Object.assign(h, { source: "airplanes.live" }) : null;
+		});
 	}
 
 	function onGround(ac) { return ac.alt_baro === "ground" || (typeof ac.gs === "number" && ac.gs < 40 && ac.alt_baro < 1500); }
@@ -315,21 +397,20 @@
 		if (!airport) { taxiStatus.textContent = "No airport with taxiway data in the list."; return; }
 		clearTaxi();
 		taxiStatus.textContent = "Working\u2026";
-		var graph, parsed, aircraftList = [];
+		var graph, parsed;
 		loadGraph(airport).then(function (g) {
 			graph = g;
 			parsed = FR24TaxiRoute.parse(text, graph.known());
-			return parsed.callsign ? fetchAircraft(airport).catch(function (err) { parsed.warnings.push(err.message); return []; }) : [];
-		}).then(function (list) {
-			aircraftList = list;
-			var found = parsed.callsign ? findAircraft(aircraftList, parsed.callsign) : null;
+			return parsed.callsign ? locate(airport, parsed.callsign) : null;
+		}).then(function (found) {
 			var ac = found && found.ac;
 			var start = ac && onGround(ac) ? [ac.lat, ac.lon] : null;
 			var result = graph.route(parsed.taxiways, { start: start, runway: parsed.runway, holdShort: parsed.holdShort });
 
 			var lines = [];
 			if (parsed.callsign) {
-				if (!ac) lines.push(parsed.callsign + ": not found near " + airport.ICAO + " (route start is approximate)");
+				if (!ac) lines.push(parsed.callsign + ": not found on the map or airplanes.live. Zoom the map to " +
+					airport.ICAO + " so Flightradar24 loads it (route start is approximate).");
 				else {
 					var name = (ac.flight || ac.r || "").trim();
 					lines.push(name + (found.exact ? "" : " (closest match to " + parsed.callsign + ")") +
@@ -370,11 +451,9 @@
 			}
 			if (ac) {
 				placeMarker(ac);
+				var tracked = (ac.flight || "").trim().toUpperCase() || parsed.callsign;
 				taxi.timer = setInterval(function () {
-					fetchAircraft(airport).then(function (list) {
-						var f = findAircraft(list, (ac.flight || "").trim().toUpperCase() || parsed.callsign);
-						if (f) placeMarker(f.ac);
-					}).catch(function () {});
+					locate(airport, tracked).then(function (f) { if (f && f.exact) placeMarker(f.ac); }).catch(function () {});
 				}, 3000);
 				setTimeout(function () { if (taxi.timer) { clearInterval(taxi.timer); taxi.timer = null; } }, 20 * 60 * 1000);
 			}
@@ -441,8 +520,7 @@
 
 	// Ring the aircraft that was just spoken to; it fades after 15 s.
 	function highlightSpeaker(airport, callsign, note) {
-		fetchAircraft(airport).then(function (list) {
-			var found = findAircraft(list, callsign);
+		locate(airport, callsign).then(function (found) {
 			if (!found) { note.textContent = "(not found)"; return; }
 			if (!found.exact) note.textContent = "(\u2248 " + (found.ac.flight || "").trim() + ")";
 			clearSpeaker();
