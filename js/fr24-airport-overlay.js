@@ -28,6 +28,7 @@
 		destroy: function () {
 			if (state.unhook) state.unhook();
 			clearTaxi();
+			stopAtc();
 			state.overlays.forEach(function (o) { o.setMap(null); });
 			if (state.panel) state.panel.remove();
 			delete window[STATE_KEY];
@@ -95,6 +96,8 @@
 		}
 	});
 	var taxiStatus = el("div", { style: "margin-top:4px;font-size:12px;color:#cfd8e3;white-space:pre-line;" });
+	var atcStatus = el("span", { style: "font-size:12px;color:#8a96a8;" });
+	var atcLog = el("div", { style: "margin-top:4px;font-size:12px;max-height:160px;overflow:auto;" });
 	var buttonStyle = "background:#2a3446;color:#fff;border:1px solid #445;border-radius:4px;padding:2px 10px;cursor:pointer;";
 	var taxiSection = el("div", { style: "display:none;margin-top:10px;padding-top:8px;border-top:1px solid #334;" }, [
 		el("div", { style: "font-weight:600;" }, ["Taxi instruction"]),
@@ -103,7 +106,12 @@
 			el("button", { textContent: "Show", style: buttonStyle, onclick: function () { showTaxi(taxiInput.value); } }),
 			el("button", { textContent: "Clear", style: buttonStyle, onclick: function () { clearTaxi(); taxiStatus.textContent = ""; } })
 		]),
-		taxiStatus
+		taxiStatus,
+		el("div", { style: "display:flex;align-items:center;gap:6px;margin-top:8px;" }, [
+			el("button", { textContent: "Listen to ATC helper", style: buttonStyle, onclick: function () { toggleAtc(this); } }),
+			atcStatus
+		]),
+		atcLog
 	]);
 
 	state.panel = el("div", {
@@ -220,11 +228,18 @@
 		return best;
 	}
 
+	// airplanes.live allows about one request per second; share results briefly.
+	var aircraftCache = {};
 	function fetchAircraft(airport) {
+		var cached = aircraftCache[airport.ICAO];
+		if (cached && Date.now() - cached.t < 2000) return cached.promise;
 		var c = airportCenter(airport);
-		return fetch("https://api.airplanes.live/v2/point/" + c.lat.toFixed(4) + "/" + c.lng.toFixed(4) + "/8")
+		var promise = fetch("https://api.airplanes.live/v2/point/" + c.lat.toFixed(4) + "/" + c.lng.toFixed(4) + "/8")
 			.then(function (r) { if (!r.ok) throw new Error("airplanes.live returned " + r.status); return r.json(); })
 			.then(function (j) { return j.ac || []; });
+		aircraftCache[airport.ICAO] = { t: Date.now(), promise: promise };
+		promise.catch(function () { delete aircraftCache[airport.ICAO]; });
+		return promise;
 	}
 
 	function editDistance(a, b) {
@@ -365,6 +380,93 @@
 			}
 		}).catch(function (err) {
 			taxiStatus.textContent = "\u26a0 " + err.message;
+		});
+	}
+
+	var ATC_URL = "http://127.0.0.1:8765/events";
+	var SPEAKER_COLOR = "#ff4fd8";
+	var atc = { source: null, button: null, speaker: null, speakerTimer: null, retry: null };
+
+	function setAtcStatus(text, color) { atcStatus.textContent = text; atcStatus.style.color = color || "#8a96a8"; }
+
+	function toggleAtc(button) {
+		atc.button = button;
+		if (atc.source) stopAtc(); else startAtc();
+	}
+
+	function startAtc() {
+		var source = atc.source = new EventSource(ATC_URL);
+		if (atc.button) atc.button.textContent = "Stop listening";
+		setAtcStatus("connecting\u2026");
+		source.onopen = function () { setAtcStatus("\u25cf connected", "#5fd38d"); };
+		source.onerror = function () {
+			setAtcStatus("Can't reach the helper. Is atc_listen.py running? If your browser asked whether this site " +
+				"may access apps on this device, choose Allow. Retrying\u2026", "#ffcc66");
+			// A refused connection closes the EventSource for good instead of retrying.
+			if (source.readyState === EventSource.CLOSED) {
+				atc.retry = setTimeout(function () { if (atc.source === source) startAtc(); }, 5000);
+			}
+		};
+		source.onmessage = function (e) { onTransmission(JSON.parse(e.data)); };
+	}
+
+	function stopAtc() {
+		if (atc.retry) clearTimeout(atc.retry);
+		if (atc.source) atc.source.close();
+		atc.source = null;
+		if (atc.button) atc.button.textContent = "Listen to ATC helper";
+		setAtcStatus("");
+		clearSpeaker();
+	}
+
+	function clearSpeaker() {
+		if (atc.speakerTimer) clearTimeout(atc.speakerTimer);
+		if (atc.speaker) atc.speaker.setMap(null);
+		atc.speaker = atc.speakerTimer = null;
+	}
+
+	function addLog(text, parsed) {
+		var time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+		var note = el("span", { style: "color:#8a96a8;" });
+		var entry = el("div", { style: "padding:3px 0;border-bottom:1px solid #263041;" }, [
+			el("span", { textContent: time + " ", style: "color:#8a96a8;" }),
+			el("span", { textContent: parsed && parsed.callsign ? parsed.callsign + " " : "", style: "color:" + SPEAKER_COLOR + ";font-weight:600;" }),
+			text + " ",
+			note
+		]);
+		atcLog.prepend(entry);
+		while (atcLog.children.length > 8) atcLog.lastChild.remove();
+		return note;
+	}
+
+	// Ring the aircraft that was just spoken to; it fades after 15 s.
+	function highlightSpeaker(airport, callsign, note) {
+		fetchAircraft(airport).then(function (list) {
+			var found = findAircraft(list, callsign);
+			if (!found) { note.textContent = "(not found)"; return; }
+			if (!found.exact) note.textContent = "(\u2248 " + (found.ac.flight || "").trim() + ")";
+			clearSpeaker();
+			atc.speaker = new google.maps.Marker({
+				position: { lat: found.ac.lat, lng: found.ac.lon }, map: state.map, clickable: false, zIndex: 1000001,
+				icon: { path: google.maps.SymbolPath.CIRCLE, scale: 30, strokeColor: SPEAKER_COLOR, strokeWeight: 3, fillOpacity: 0 }
+			});
+			atc.speakerTimer = setTimeout(clearSpeaker, 15000);
+		}).catch(function (err) { note.textContent = "(" + err.message + ")"; });
+	}
+
+	function onTransmission(msg) {
+		var airport = currentAirport();
+		if (!airport) { addLog(msg.text, null); return; }
+		loadGraph(airport).then(function (graph) {
+			var parsed = FR24TaxiRoute.parse(msg.text, graph.known());
+			var note = addLog(msg.text, parsed);
+			if (!parsed.callsign) return;
+			// Readbacks repeat the route without "taxi"/"via"; only redraw for the instruction itself.
+			if (parsed.taxiways.length && /\b(taxi|via|turn|continue)\b/i.test(msg.text)) {
+				taxiInput.value = msg.text;
+				showTaxi(msg.text);
+			}
+			highlightSpeaker(airport, parsed.callsign, note);
 		});
 	}
 

@@ -42,22 +42,38 @@
 			.replace(/[^a-z0-9, ]+/g, " ").split(/\s+/).filter(Boolean);
 	}
 
+	function isNumberWord(w) {
+		return /^\d+$/.test(w) || DIGITS[w] || TEENS[w] || TENS[w] || w === "hundred" || w === "thousand";
+	}
+
+	// Handles digit-by-digit ("two three four five"), paired ("twenty three forty
+	// five") and cardinal ("three thousand four hundred one") flight numbers.
 	function readNumber(t, i) {
-		var s = "", j = i;
-		while (j < t.length) {
-			var w = t[j];
-			if (/^\d+$/.test(w)) s += w;
-			else if (DIGITS[w]) s += DIGITS[w];
-			else if (TEENS[w]) s += TEENS[w];
-			else if (TENS[w]) {
-				if (DIGITS[t[j + 1]] && DIGITS[t[j + 1]] !== "0") { s += TENS[w] + DIGITS[t[j + 1]]; j++; }
-				else s += TENS[w] + "0";
-			}
-			else if (w === "hundred" && s) s += "00";
-			else break;
-			j++;
+		var j = i;
+		while (j < t.length && (isNumberWord(t[j]) ||
+			// "five hundred and one"
+			(t[j] === "and" && /^(hundred|thousand)$/.test(t[j - 1]) && j + 1 < t.length && isNumberWord(t[j + 1])))) j++;
+		if (j === i || t[i] === "hundred" || t[i] === "thousand") return null;
+		var words = t.slice(i, j).filter(function (w) { return w !== "and"; });
+		if (words.indexOf("thousand") >= 0 || words.indexOf("hundred") >= 0) {
+			var total = 0, cur = 0;
+			words.forEach(function (w) {
+				if (w === "thousand") { total += (cur || 1) * 1000; cur = 0; }
+				else if (w === "hundred") cur = (cur || 1) * 100;
+				else if (TENS[w]) cur += parseInt(TENS[w], 10) * 10;
+				else cur += parseInt(DIGITS[w] || TEENS[w] || w, 10);
+			});
+			return { text: String(total + cur), next: j };
 		}
-		return s ? { text: s, next: j } : null;
+		var s = "";
+		for (var k = 0; k < words.length; k++) {
+			var w = words[k];
+			if (TENS[w]) {
+				if (DIGITS[words[k + 1]] && DIGITS[words[k + 1]] !== "0") { s += TENS[w] + DIGITS[words[++k]]; }
+				else s += TENS[w] + "0";
+			} else s += DIGITS[w] || TEENS[w] || w;
+		}
+		return { text: s, next: j };
 	}
 
 	function readRunway(t, i, known) {

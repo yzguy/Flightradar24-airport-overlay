@@ -19,6 +19,20 @@ const parseCases = [
 		{ callsign: "DAL1180", runway: "36R", taxiways: ["A", "B", "EL"], holdShort: [] }],
 	["Southwest 12 turn right Lima 2 then Kilo, hold short of Echo Juliet",
 		{ callsign: "SWA12", runway: null, taxiways: ["L2", "K"], holdShort: ["EJ"] }],
+	// Transcriber output style: lowercase, no punctuation, numbers in words.
+	["envoy three thousand four hundred one runway eighteen left taxi via echo whiskey kilo",
+		{ callsign: "ENY3401", runway: "18L", taxiways: ["E", "WK"], holdShort: [] }],
+	["southwest twelve turn right lima two then kilo hold short of echo juliett",
+		{ callsign: "SWA12", runway: null, taxiways: ["L2", "K"], holdShort: ["EJ"] }],
+	["Delta twelve hundred runway three five left taxi via kilo ten",
+		{ callsign: "DAL1200", runway: "35L", taxiways: ["K10"], holdShort: [] }],
+	// Verbatim output of the ATC model on helper/make_test_audio.sh recordings.
+	["Spirit one thousand four hundred forty two runway thirty five right taxi via alfa bravo hold short of runway thirty five left",
+		{ callsign: "NKS1442", runway: "35R", taxiways: ["A", "B"], holdShort: ["35L"] }],
+	["united five hundred and one cross runway seventeen right then taxi via mike kilo seven",
+		{ callsign: "UAL501", runway: null, taxiways: ["M", "K7"], holdShort: [] }],
+	["frontier two thousand two hundred ten turn left quebec ten taxi to the ramp via quebec echo juliett",
+		{ callsign: "FFT2210", runway: null, taxiways: ["Q10", "Q", "EJ"], holdShort: [] }],
 	["UAL501 via Q10 Q hold short 17L",
 		{ callsign: "UAL501", runway: null, taxiways: ["Q10", "Q"], holdShort: ["17L"] }],
 ];
