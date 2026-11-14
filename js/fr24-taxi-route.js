@@ -58,6 +58,10 @@
 		via: 1, turn: 1, taxi: 1, continue: 1, ground: 1, tower: 1
 	};
 	var LIST_SKIP = { ",": 1, and: 1, then: 1, taxiway: 1, left: 1, right: 1, on: 1, onto: 1 };
+	var NOT_CALLSIGN_BEFORE = {
+		on: 1, to: 1, at: 1, of: 1, for: 1, and: 1, is: 1, runway: 1, point: 1, decimal: 1, heading: 1,
+		maintain: 1, climb: 1, descend: 1, ramp: 1, gate: 1, spot: 1, number: 1, squawk: 1, altimeter: 1
+	};
 
 	function tokenize(text) {
 		return text.toLowerCase().replace(/x-ray/g, "xray").replace(/,/g, " , ")
@@ -182,8 +186,10 @@
 	// part of many international callsigns but can also be a taxiway, so offer both.
 	function withSuffix(code, n, t) {
 		var j = n.next, letters = "";
-		while (letters.length < 2 && PHONETIC[t[j]] && t[j] !== "november") letters += PHONETIC[t[j++]];
+		while (letters.length < 2 && PHONETIC[t[j]]) letters += PHONETIC[t[j++]];
 		var heavy = /^(heavy|super)$/.test(t[j]);
+		// "november" right after a flight number is usually the taxiway, unless "heavy" confirms it.
+		if (!heavy && letters.indexOf("N") >= 0) letters = letters.slice(0, letters.indexOf("N"));
 		var base = code + n.text;
 		var res = { callsign: base, end: n.next };
 		if (letters) res.options = [base + letters].concat(letters.length > 1 ? [base + letters[0]] : [], [base]);
@@ -203,10 +209,12 @@
 			}
 			for (var len = 2; !res && len >= 1; len--) {
 				var name = t.slice(i, i + len).join(" "), n;
-				if (AIRLINES[name] && (n = readNumber(t, i + len))) res = withSuffix(AIRLINES[name], n, t);
+				// The general Whisper model writes "Americans on 953".
+				var code = AIRLINES[name] || AIRLINES[name.replace(/s$/, "")];
+				if (code && (n = readNumber(t, i + len))) res = withSuffix(code, n, t);
 				else if (AIRCRAFT_TYPES[name]) {
 					var full = name === "november" && readTail(t, i + 1, US_TAIL);
-					var part = !full && readTail(t, i + len, /^\d{0,5}[A-Z]{0,2}$/);
+					var part = !full && readTail(t, i + len, /^\d{1,5}[A-Z]{0,2}$/);
 					if (full) res = { callsign: "N" + full.text, end: full.next };
 					else if (part && part.text.length >= 2) res = { tail: part.text, end: part.next };
 				}
@@ -226,11 +234,16 @@
 		var t = tokenize(text);
 		var res = { callsign: null, runway: null, taxiways: [], holdShort: [], cross: [], warnings: [] };
 		// Maintenance tows ("Delta Maintenance 9571") use the aircraft's fleet number, not a
-		// flight number, so they must not be matched to flights.
-		for (var x = 0; x < t.length; x++) {
-			if (/^(maint\w*|main|maine|mainus|maina|mane|manus|minus|munich)$/.test(t[x]) &&
-				(AIRLINES[t[x - 1]] || t[x - 1] === "for" || t[x] !== "main" && /^maint/.test(t[x]))) {
+		// flight number, so they must not be matched to flights. Only the addressee (start)
+		// or a readback (end) counts; "pass behind the Delta maintenance" mid-sentence doesn't.
+		var words = t.filter(function (w) { return w !== ","; });
+		for (var x = 0, pos = 0; x < t.length; x++) {
+			if (t[x] === ",") continue;
+			if (pos++ > 3 && pos <= words.length - 6) continue;
+			if (/^(maintenance|maintence|maintanence|maintainance|main|maine|mainus|maina|mane|manus|minus|munich)$/.test(t[x]) &&
+				(AIRLINES[t[x - 1]] || t[x - 1] === "for" || /^maint/.test(t[x]))) {
 				var ship = readNumber(t, x + 1 + (t[x + 1] === "is" ? 1 : 0));
+				if (pos > 4 && !ship) continue;
 				res.tow = { airline: AIRLINES[t[x - 1]] || null, ship: ship ? ship.text : null };
 				break;
 			}
@@ -289,11 +302,21 @@
 		// Misheard airline ("air berlin four six three") or a number-only callsign
 		// ("six seven nine, taxi to..."): keep the flight number so the caller can
 		// match it against aircraft at the airport.
+		// Prefer a number marked "heavy", then one in callsign position (at the start or
+		// after an unrecognized word, like "ryan air six nine five") over one after
+		// "on"/"runway"/"point" etc., which are runways, frequencies and headings.
 		if (!res.callsign && !res.tail) {
+			var best = -1;
 			for (var n = 0; n < firstKeyword; n++) {
 				var num = readNumber(t, n);
-				if (num && num.text.length >= 2 && num.text.length <= 4 && num.text[0] !== "0") { res.flightNumber = num.text; break; }
-				if (num) n = num.next - 1;
+				if (!num) continue;
+				if (num.text.length >= 2 && num.text.length <= 4 && num.text[0] !== "0") {
+					var prev = t[n - 1];
+					var score = (/^(heavy|super)$/.test(t[num.next]) ? 2 : 0) +
+						(!prev || !(NOT_CALLSIGN_BEFORE[prev] || PHONETIC[prev] || SIDES[prev]) ? 1 : 0);
+					if (score > best) { best = score; res.flightNumber = num.text; }
+				}
+				n = num.next - 1;
 			}
 		}
 		return res;

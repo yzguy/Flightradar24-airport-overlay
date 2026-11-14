@@ -41,6 +41,10 @@ for (const [text, want] of [
 	["air berlin four six three dsw ground check your squawk taxi via golf whiskey golf cross runway one eight left", "463"],
 	["six seven nine taxi to hotel alfa hotel alfa nine six seven nine", "679"],
 	["direct golf whiskey golf cross one eight left for one eight right", undefined],
+	// Live KJFK transcripts: prefer the number in callsign position or marked heavy.
+	["november mike charlie left on three one seven ryan air six nine five", "695"],
+	["bratislava nine fifty three heavy continue november mike charlie left one three one left", "953"],
+	["Americans on 953 heavy, continue November. Mike Charlie, left on 3-1 left.", "953"],
 ]) {
 	const got = parse(text, known);
 	assert.strictEqual(got.callsign, null, `no airline callsign in ${JSON.stringify(text)}`);
@@ -54,8 +58,8 @@ for (const [text, ship] of [
 	["for maintence ninety five seventy one right on foxtrot echo to the csa", "9571"],
 	["Delta maintenance ninety five thirty one ground", "9531"],
 	["copy that alfa five delta maina three one forty nine", "3149"],
-	["austrian one the delta munich is good to go on alfa seven", null],
 	["delta munich one forty nine via hotel", "149"],
+	["Hey ground, Delta Main is 9571, we're here at spot 2 north, looking to taxi to the TFC.", "9571"],
 ]) {
 	const got = parse(text, known);
 	assert.ok(got.tow, `tow in ${JSON.stringify(text)}`);
@@ -71,6 +75,10 @@ for (const [text, want] of [
 		{ callsign: "BAW21", options: ["BAW21AB", "BAW21A", "BAW21"], tail: undefined, taxiways: ["K"] }],
 	["delta two hundred heavy runway one seven center taxi via kilo",
 		{ callsign: "DAL200", options: undefined, tail: undefined, taxiways: ["K"] }],
+	["lot five november heavy turn right kilo cross runway three one left",
+		{ callsign: "LOT5", options: ["LOT5N", "LOT5"], tail: undefined, taxiways: ["K"] }],
+	["american twelve thirty four november",
+		{ callsign: "AAL1234", options: undefined, tail: undefined, taxiways: [] }],
 	["american twelve thirty four echo juliett",
 		{ callsign: "AAL1234", options: ["AAL1234EJ", "AAL1234E", "AAL1234"], tail: undefined, taxiways: [] }],
 	["november one two three alfa bravo taxi via kilo",
