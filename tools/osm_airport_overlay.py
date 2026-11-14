@@ -20,7 +20,12 @@ from datetime import date
 
 from PIL import Image, ImageDraw, ImageFont
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
+OVERPASS_SERVERS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
 USER_AGENT = "Flightradar24-airport-overlay/1.0"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUPERSAMPLE = 2
@@ -48,22 +53,27 @@ FONT_CANDIDATES = [
 ]
 
 
-def overpass(query, attempts=4):
-    req = urllib.request.Request(
-        OVERPASS,
-        data=urllib.parse.urlencode({"data": query}).encode(),
-        headers={"User-Agent": USER_AGENT},
-    )
-    for i in range(attempts):
-        try:
-            with urllib.request.urlopen(req, timeout=180) as r:
-                return json.load(r)
-        except urllib.error.HTTPError as err:
-            if err.code not in (429, 502, 503, 504) or i == attempts - 1:
-                raise
-            wait = 15 * (i + 1)
-            print(f"Overpass returned {err.code}, retrying in {wait}s", file=sys.stderr)
-            time.sleep(wait)
+def overpass(query, servers, rounds=2):
+    """Try each Overpass server in turn, moving on after an error or timeout."""
+    body = urllib.parse.urlencode({"data": query}).encode()
+    errors = []
+    for rnd in range(rounds):
+        if rnd:
+            print("All Overpass servers failed, retrying in 20s", file=sys.stderr)
+            time.sleep(20)
+        for url in servers:
+            req = urllib.request.Request(url, data=body, headers={"User-Agent": USER_AGENT})
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    data = json.load(r)
+                if "elements" not in data:
+                    raise ValueError(data.get("remark", "response has no elements"))
+                return data
+            except (urllib.error.URLError, OSError, ValueError) as err:
+                reason = getattr(err, "code", None) or getattr(err, "reason", None) or err
+                print(f"{urllib.parse.urlsplit(url).netloc} failed ({reason}), trying next server", file=sys.stderr)
+                errors.append(f"{url}: {reason}")
+    sys.exit("Could not reach any Overpass server:\n  " + "\n  ".join(errors))
 
 
 def mercator(lat, lng):
@@ -121,10 +131,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("icao")
     ap.add_argument("--size", type=int, default=3000, help="pixels on the longest side")
+    ap.add_argument("--overpass", action="append", metavar="URL",
+                    help="Overpass API endpoint to use instead of the built-in list (repeatable)")
     args = ap.parse_args()
     icao = args.icao.upper()
+    servers = args.overpass or OVERPASS_SERVERS
 
-    res = overpass(f'[out:json][timeout:60];nwr["aeroway"="aerodrome"]["icao"="{icao}"];out tags bb;')
+    res = overpass(f'[out:json][timeout:60];nwr["aeroway"="aerodrome"]["icao"="{icao}"];out tags bb;', servers)
     aero = [e for e in res["elements"] if "bounds" in e]
     if not aero:
         sys.exit(f"No aerodrome with icao={icao} found in OpenStreetMap")
@@ -134,7 +147,7 @@ def main():
     dlng = PAD_M / (111320.0 * math.cos(math.radians((b["minlat"] + b["maxlat"]) / 2)))
     s, w, n, e = b["minlat"] - dlat, b["minlon"] - dlng, b["maxlat"] + dlat, b["maxlon"] + dlng
 
-    data = overpass(f'[out:json][timeout:120];(way["aeroway"]({s},{w},{n},{e});relation["aeroway"]({s},{w},{n},{e}););out geom;')
+    data = overpass(f'[out:json][timeout:120];(way["aeroway"]({s},{w},{n},{e});relation["aeroway"]({s},{w},{n},{e}););out geom;', servers)
     elements = data["elements"]
 
     x0, y0 = mercator(n, w)
