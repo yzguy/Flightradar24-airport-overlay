@@ -340,14 +340,18 @@
 	// the airport to choose between letter-suffix variants (ETD90M vs ETD90) and to
 	// complete abbreviated tails ("Cessna 3AB" -> N123AB) or bare flight numbers
 	// ("air berlin 463" -> AAL463). Resolves to { callsign, note } or null.
+	// The ATC speech model often hears US airlines as European ones ("American" as
+	// "Air Berlin"), so a heard callsign that isn't near the airport falls back to
+	// the flight number.
 	function resolveCallsign(airport, parsed) {
-		if (parsed.callsign && !parsed.callsignOptions) return Promise.resolve({ callsign: parsed.callsign });
-		if (!parsed.callsign && !parsed.tail && !parsed.flightNumber) return Promise.resolve(null);
+		var heardNumber = parsed.callsign && (/^[A-Z]{3}(\d{1,4})/.exec(parsed.callsign) || [])[1];
+		var number = parsed.flightNumber || heardNumber;
+		if (!parsed.callsign && !parsed.tail && !number) return Promise.resolve(null);
 		return fetchAircraft(airport).catch(function () { return []; }).then(function (list) {
 			var all = feedAircraft().concat(list);
 			if (parsed.callsign) {
-				var hit = parsed.callsignOptions.filter(function (c) { return findAircraft(all, c, true); })[0];
-				return { callsign: hit || parsed.callsign };
+				var hit = (parsed.callsignOptions || [parsed.callsign]).filter(function (c) { return findAircraft(all, c, true); })[0];
+				if (hit) return { callsign: hit };
 			}
 			var hits = {};
 			all.forEach(function (a) {
@@ -355,17 +359,18 @@
 				if (parsed.tail) {
 					if (reg && reg.slice(-parsed.tail.length) === parsed.tail) hits[reg] = true;
 					else if (/^N\d/.test(flight) && flight.slice(-parsed.tail.length) === parsed.tail) hits[flight] = true;
-				} else {
+				} else if (number) {
 					var m = /^[A-Z]{3}(\d{1,4})[A-Z]{0,2}$/.exec(flight);
-					if (m && m[1] === parsed.flightNumber) hits[flight] = true;
+					if (m && m[1] === number) hits[flight] = true;
 				}
 			});
 			var ids = Object.keys(hits);
-			if (ids.length !== 1) return null;
+			if (ids.length !== 1) return parsed.callsign ? { callsign: parsed.callsign } : null;
 			return {
 				callsign: ids[0],
 				note: parsed.tail ? "matched tail \u2026" + parsed.tail + " to " + ids[0]
-					: "airline not recognized; matched flight number " + parsed.flightNumber + " to " + ids[0]
+					: parsed.callsign ? "heard " + parsed.callsign + ", not nearby; matched flight number to " + ids[0]
+					: "airline not recognized; matched flight number " + number + " to " + ids[0]
 			};
 		});
 	}
