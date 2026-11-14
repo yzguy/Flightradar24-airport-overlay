@@ -36,6 +36,18 @@ const parseCases = [
 	["UAL501 via Q10 Q hold short 17L",
 		{ callsign: "UAL501", runway: null, taxiways: ["Q10", "Q"], holdShort: ["17L"] }],
 ];
+// Real (badly heard) DFW ground transcripts: misheard airline, or number-only callsign.
+for (const [text, want] of [
+	["air berlin four six three dsw ground check your squawk taxi via golf whiskey golf cross runway one eight left", "463"],
+	["six seven nine taxi to hotel alfa hotel alfa nine six seven nine", "679"],
+	["direct golf whiskey golf cross one eight left for one eight right", undefined],
+]) {
+	const got = parse(text, known);
+	assert.strictEqual(got.callsign, null, `no airline callsign in ${JSON.stringify(text)}`);
+	assert.strictEqual(got.flightNumber, want, `flight number in ${JSON.stringify(text)}`);
+	console.log("ok flight number:", text, "->", got.flightNumber);
+}
+
 for (const [text, want] of parseCases) {
 	const got = parse(text, known);
 	const summary = {

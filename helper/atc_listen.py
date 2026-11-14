@@ -298,6 +298,7 @@ def main():
     log(f"model ready on {status['device']}")
 
     segments = queue.Queue()
+    last_quiet_warning = [0.0]
 
     def transcribe_loop():
         while True:
@@ -306,6 +307,13 @@ def main():
                 break
             audio, t0 = item
             started = time.time()
+            # Clean captures peak around -4 dBFS; at -20 and below, callsigns get misheard
+            # (in testing, "American" through a laptop mic came out as "Air Berlin").
+            peak = 20 * math.log10(float(np.max(np.abs(audio))) + 1e-9)
+            if peak < -20 and time.time() - last_quiet_warning[0] > 60:
+                last_quiet_warning[0] = time.time()
+                log(f"audio is quiet (peak {peak:.0f} dBFS); transcripts will be unreliable. Turn the volume up, "
+                    "or capture the audio directly with BlackHole (see README).")
             parts, _ = model.transcribe(
                 audio, language="en", beam_size=5, initial_prompt=prompt, temperature=[0.0, 0.4],
                 condition_on_previous_text=False, without_timestamps=True, vad_filter=False)
@@ -314,8 +322,8 @@ def main():
             if text.lower().strip(" .,!?") in HALLUCINATIONS:
                 continue
             msg = {"text": text, "time": t0, "duration": round(len(audio) / SAMPLE_RATE, 2),
-                   "latency": round(time.time() - started, 2)}
-            log(f"[{msg['duration']:.1f}s audio, {msg['latency']:.1f}s] {text}")
+                   "latency": round(time.time() - started, 2), "peak_db": round(peak)}
+            log(f"[{msg['duration']:.1f}s audio, peak {peak:.0f} dBFS, {msg['latency']:.1f}s] {text}")
             hub.publish(msg)
 
     worker = threading.Thread(target=transcribe_loop, daemon=True)

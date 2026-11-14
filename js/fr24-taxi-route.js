@@ -208,6 +208,16 @@
 			cs = readCallsign(t, 0, t.length);
 			if (cs && !PHONETIC[t[cs.start]]) res.callsign = cs.callsign;
 		}
+		// Misheard airline ("air berlin four six three") or a number-only callsign
+		// ("six seven nine, taxi to..."): keep the flight number so the caller can
+		// match it against aircraft at the airport.
+		if (!res.callsign) {
+			for (var n = 0; n < firstKeyword; n++) {
+				var num = readNumber(t, n);
+				if (num && num.text.length >= 2 && num.text.length <= 4 && num.text[0] !== "0") { res.flightNumber = num.text; break; }
+				if (num) n = num.next - 1;
+			}
+		}
 		return res;
 	}
 
