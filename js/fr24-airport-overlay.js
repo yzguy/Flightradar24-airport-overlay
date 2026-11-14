@@ -37,7 +37,8 @@
 	function loadData(cb) {
 		if (window.fr24_airport_overlay_data) return cb(window.fr24_airport_overlay_data);
 		var s = document.createElement("script");
-		s.src = base + "js/fr24-airport-overlay-data.js";
+		// jsDelivr lets browsers cache for a week; always fetch the current list.
+		s.src = base + "js/fr24-airport-overlay-data.js?t=" + Date.now();
 		s.onload = function () { cb(window.fr24_airport_overlay_data || []); };
 		s.onerror = function () { setStatus("Failed to load airport data from " + s.src); };
 		document.head.appendChild(s);

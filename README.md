@@ -12,7 +12,7 @@ This addon aims to label taxiways, runways and other visual markings on Flightra
 
 Add the code below as your bookmark/favorite URL.
 
-`javascript:(function(){var s=document.createElement('script');s.id='fr24-airport-overlay';s.src='https://cdn.jsdelivr.net/gh/yzguy/Flightradar24-airport-overlay@main/js/fr24-airport-overlay.js';document.body.appendChild(s);})()`
+`javascript:(function(){var s=document.createElement('script');s.id='fr24-airport-overlay';s.src='https://cdn.jsdelivr.net/gh/yzguy/Flightradar24-airport-overlay@main/js/fr24-airport-overlay.js?t='+Date.now();document.body.appendChild(s);})()`
 
 1. Open the Flightradar24 live [map](https://www.flightradar24.com/).
 2. Click the bookmark. An "Airport overlays" panel appears.
