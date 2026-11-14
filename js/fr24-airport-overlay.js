@@ -583,6 +583,10 @@
 		loadGraph(airport).then(function (graph) {
 			var parsed = FR24TaxiRoute.parse(msg.text, graph.known());
 			var note = addLog(msg.text, parsed);
+			if (parsed.tow) {
+				note.textContent = "(maintenance tow" + (parsed.tow.ship ? ", ship " + parsed.tow.ship : "") + "; not a flight)";
+				return;
+			}
 			resolveCallsign(airport, parsed).then(function (r) {
 				if (!r) {
 					note.textContent = parsed.tail ? "(no single aircraft nearby with a tail ending " + parsed.tail + ")"

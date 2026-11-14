@@ -225,9 +225,19 @@
 	function parse(text, known) {
 		var t = tokenize(text);
 		var res = { callsign: null, runway: null, taxiways: [], holdShort: [], cross: [], warnings: [] };
+		// Maintenance tows ("Delta Maintenance 9571") use the aircraft's fleet number, not a
+		// flight number, so they must not be matched to flights.
+		for (var x = 0; x < t.length; x++) {
+			if (/^(maint\w*|main|maine|mainus|maina|mane|manus|minus|munich)$/.test(t[x]) &&
+				(AIRLINES[t[x - 1]] || t[x - 1] === "for" || t[x] !== "main" && /^maint/.test(t[x]))) {
+				var ship = readNumber(t, x + 1 + (t[x + 1] === "is" ? 1 : 0));
+				res.tow = { airline: AIRLINES[t[x - 1]] || null, ship: ship ? ship.text : null };
+				break;
+			}
+		}
 		var firstKeyword = t.length;
 		for (var k = 0; k < t.length; k++) if (LIST_STOP[t[k]]) { firstKeyword = k; break; }
-		var cs = readCallsign(t, 0, firstKeyword);
+		var cs = res.tow ? null : readCallsign(t, 0, firstKeyword);
 		function useCallsign(c) {
 			if (c.callsign) res.callsign = c.callsign;
 			if (c.options) res.callsignOptions = c.options;
@@ -271,6 +281,7 @@
 			}
 			i++;
 		}
+		if (res.tow) return res;
 		if (!res.callsign && !res.tail) {
 			var late = readCallsign(t, 0, t.length);
 			if (late && !PHONETIC[t[late.start]]) useCallsign(late);

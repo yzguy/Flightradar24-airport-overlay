@@ -47,6 +47,22 @@ for (const [text, want] of [
 	assert.strictEqual(got.flightNumber, want, `flight number in ${JSON.stringify(text)}`);
 	console.log("ok flight number:", text, "->", got.flightNumber);
 }
+// Maintenance tows, as the ATC model actually transcribed them at KATL.
+for (const [text, ship] of [
+	["delta main is ninety five thirty one ground", "9531"],
+	["ground delta main is 95 to 71 we are here at spot two north looking to taxi to the tsc", "95"],
+	["for maintence ninety five seventy one right on foxtrot echo to the csa", "9571"],
+	["Delta maintenance ninety five thirty one ground", "9531"],
+	["copy that alfa five delta maina three one forty nine", "3149"],
+	["austrian one the delta munich is good to go on alfa seven", null],
+	["delta munich one forty nine via hotel", "149"],
+]) {
+	const got = parse(text, known);
+	assert.ok(got.tow, `tow in ${JSON.stringify(text)}`);
+	assert.strictEqual(got.tow.ship, ship, `tow ship in ${JSON.stringify(text)}`);
+	assert.ok(!got.callsign && !got.flightNumber, `tow must not match a flight: ${JSON.stringify(text)}`);
+	console.log("ok tow:", text, "->", ship);
+}
 // Callsign letter suffixes, tail numbers and the wider airline list.
 for (const [text, want] of [
 	["etihad nine zero mike heavy runway one seven center taxi via kilo",
