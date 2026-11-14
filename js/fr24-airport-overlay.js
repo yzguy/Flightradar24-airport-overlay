@@ -336,19 +336,37 @@
 		return near.length === 1 ? { ac: near[0], exact: false } : null;
 	}
 
-	// Resolves to the one airline callsign near the airport with this flight number
-	// (e.g. 463 -> AAL463), or null if there are none or several.
-	function callsignForNumber(airport, number) {
-		if (!number) return Promise.resolve(null);
+	// Turns what the parser heard into a callsign to look up, using the aircraft near
+	// the airport to choose between letter-suffix variants (ETD90M vs ETD90) and to
+	// complete abbreviated tails ("Cessna 3AB" -> N123AB) or bare flight numbers
+	// ("air berlin 463" -> AAL463). Resolves to { callsign, note } or null.
+	function resolveCallsign(airport, parsed) {
+		if (parsed.callsign && !parsed.callsignOptions) return Promise.resolve({ callsign: parsed.callsign });
+		if (!parsed.callsign && !parsed.tail && !parsed.flightNumber) return Promise.resolve(null);
 		return fetchAircraft(airport).catch(function () { return []; }).then(function (list) {
+			var all = feedAircraft().concat(list);
+			if (parsed.callsign) {
+				var hit = parsed.callsignOptions.filter(function (c) { return findAircraft(all, c, true); })[0];
+				return { callsign: hit || parsed.callsign };
+			}
 			var hits = {};
-			feedAircraft().concat(list).forEach(function (a) {
-				var flight = (a.flight || "").trim().toUpperCase();
-				var m = /^[A-Z]{3}(\d{1,4})[A-Z]?$/.exec(flight);
-				if (m && m[1] === number) hits[flight] = true;
+			all.forEach(function (a) {
+				var flight = (a.flight || "").trim().toUpperCase(), reg = (a.r || "").replace(/-/g, "").toUpperCase();
+				if (parsed.tail) {
+					if (reg && reg.slice(-parsed.tail.length) === parsed.tail) hits[reg] = true;
+					else if (/^N\d/.test(flight) && flight.slice(-parsed.tail.length) === parsed.tail) hits[flight] = true;
+				} else {
+					var m = /^[A-Z]{3}(\d{1,4})[A-Z]{0,2}$/.exec(flight);
+					if (m && m[1] === parsed.flightNumber) hits[flight] = true;
+				}
 			});
-			var flights = Object.keys(hits);
-			return flights.length === 1 ? flights[0] : null;
+			var ids = Object.keys(hits);
+			if (ids.length !== 1) return null;
+			return {
+				callsign: ids[0],
+				note: parsed.tail ? "matched tail \u2026" + parsed.tail + " to " + ids[0]
+					: "airline not recognized; matched flight number " + parsed.flightNumber + " to " + ids[0]
+			};
 		});
 	}
 
@@ -417,10 +435,9 @@
 		loadGraph(airport).then(function (g) {
 			graph = g;
 			parsed = FR24TaxiRoute.parse(text, graph.known());
-			if (parsed.callsign) return parsed.callsign;
-			return callsignForNumber(airport, parsed.flightNumber).then(function (cs) {
-				if (cs) parsed.warnings.push("Airline not recognized; matched flight number " + parsed.flightNumber + " to " + cs);
-				return (parsed.callsign = cs);
+			return resolveCallsign(airport, parsed).then(function (r) {
+				if (r && r.note) parsed.warnings.push(r.note.charAt(0).toUpperCase() + r.note.slice(1));
+				return (parsed.callsign = r ? r.callsign : null);
 			});
 		}).then(function (callsign) {
 			return callsign ? locate(airport, callsign) : null;
@@ -529,9 +546,10 @@
 	function addLog(text, parsed) {
 		var time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 		var note = el("span", { style: "color:#8a96a8;" });
+		note.label = el("span", { textContent: parsed && parsed.callsign ? parsed.callsign + " " : "", style: "color:" + SPEAKER_COLOR + ";font-weight:600;" });
 		var entry = el("div", { style: "padding:3px 0;border-bottom:1px solid #263041;" }, [
 			el("span", { textContent: time + " ", style: "color:#8a96a8;" }),
-			el("span", { textContent: parsed && parsed.callsign ? parsed.callsign + " " : "", style: "color:" + SPEAKER_COLOR + ";font-weight:600;" }),
+			note.label,
 			text + " ",
 			note
 		]);
@@ -560,15 +578,16 @@
 		loadGraph(airport).then(function (graph) {
 			var parsed = FR24TaxiRoute.parse(msg.text, graph.known());
 			var note = addLog(msg.text, parsed);
-			var byNumber = !parsed.callsign;
-			(parsed.callsign ? Promise.resolve(parsed.callsign) : callsignForNumber(airport, parsed.flightNumber)).then(function (callsign) {
-				if (!callsign) {
-					note.textContent = parsed.flightNumber
-						? "(no aircraft nearby with flight number " + parsed.flightNumber + ")"
+			resolveCallsign(airport, parsed).then(function (r) {
+				if (!r) {
+					note.textContent = parsed.tail ? "(no single aircraft nearby with a tail ending " + parsed.tail + ")"
+						: parsed.flightNumber ? "(no aircraft nearby with flight number " + parsed.flightNumber + ")"
 						: "(no callsign recognized)";
 					return;
 				}
-				if (byNumber) note.textContent = "(airline not recognized; matched " + callsign + " by flight number)";
+				var callsign = r.callsign;
+				note.label.textContent = callsign + " ";
+				if (r.note) note.textContent = "(" + r.note + ")";
 				// Readbacks repeat the route without "taxi"/"via"; only redraw for the instruction itself.
 				if (parsed.taxiways.length && /\b(taxi|via|turn|continue)\b/i.test(msg.text)) {
 					taxiInput.value = msg.text;

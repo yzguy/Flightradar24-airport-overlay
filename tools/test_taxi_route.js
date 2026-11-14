@@ -47,6 +47,35 @@ for (const [text, want] of [
 	assert.strictEqual(got.flightNumber, want, `flight number in ${JSON.stringify(text)}`);
 	console.log("ok flight number:", text, "->", got.flightNumber);
 }
+// Callsign letter suffixes, tail numbers and the wider airline list.
+for (const [text, want] of [
+	["etihad nine zero mike heavy runway one seven center taxi via kilo",
+		{ callsign: "ETD90", options: ["ETD90M", "ETD90"], tail: undefined, taxiways: ["K"] }],
+	["speedbird two one alfa bravo taxi via kilo",
+		{ callsign: "BAW21", options: ["BAW21AB", "BAW21A", "BAW21"], tail: undefined, taxiways: ["K"] }],
+	["delta two hundred heavy runway one seven center taxi via kilo",
+		{ callsign: "DAL200", options: undefined, tail: undefined, taxiways: ["K"] }],
+	["american twelve thirty four echo juliett",
+		{ callsign: "AAL1234", options: ["AAL1234EJ", "AAL1234E", "AAL1234"], tail: undefined, taxiways: [] }],
+	["november one two three alfa bravo taxi via kilo",
+		{ callsign: "N123AB", options: undefined, tail: undefined, taxiways: ["K"] }],
+	["november five six seven eight nine taxi via kilo",
+		{ callsign: "N56789", options: undefined, tail: undefined, taxiways: ["K"] }],
+	["cessna three alfa bravo taxi via kilo",
+		{ callsign: null, options: undefined, tail: "3AB", taxiways: ["K"] }],
+	["king air four five zulu runway one seven center taxi via kilo",
+		{ callsign: null, options: undefined, tail: "45Z", taxiways: ["K"] }],
+	["frontier flight twelve ten taxi via kilo",
+		{ callsign: "FFT1210", options: undefined, tail: undefined, taxiways: ["K"] }],
+	["copa three forty one taxi via kilo",
+		{ callsign: "CMP341", options: undefined, tail: undefined, taxiways: ["K"] }],
+]) {
+	const got = parse(text, known);
+	const summary = { callsign: got.callsign, options: got.callsignOptions, tail: got.tail, taxiways: got.taxiways };
+	assert.deepStrictEqual(summary, want, `parse(${JSON.stringify(text)})`);
+	assert.strictEqual(got.flightNumber, undefined, `no flight-number fallback in ${JSON.stringify(text)}`);
+	console.log("ok callsign:", text, "->", JSON.stringify(summary));
+}
 
 for (const [text, want] of parseCases) {
 	const got = parse(text, known);

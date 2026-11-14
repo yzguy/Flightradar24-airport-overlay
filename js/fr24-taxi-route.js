@@ -18,15 +18,37 @@
 
 	// Spoken airline callsign (telephony) -> ICAO code.
 	var AIRLINES = {
+		// US mainline, low-cost and regional
 		"american": "AAL", "delta": "DAL", "united": "UAL", "southwest": "SWA", "spirit wings": "NKS",
 		"spirit": "NKS", "frontier flight": "FFT", "frontier": "FFT", "alaska": "ASA", "jetblue": "JBU",
-		"envoy": "ENY", "skywest": "SKW", "air shuttle": "ASH", "brickyard": "RPA", "blue streak": "JIA",
-		"piedmont": "PDT", "endeavor": "EDV", "lindbergh": "GJS", "horizon": "QXE", "fedex": "FDX",
-		"ups": "UPS", "giant": "GTI", "sun country": "SCX", "allegiant": "AAY", "air canada": "ACA",
-		"jazz": "JZA", "westjet": "WJA", "volaris": "VOI", "aeromexico": "AMX", "lufthansa": "DLH",
-		"speedbird": "BAW", "qantas": "QFA", "qatari": "QTR", "emirates": "UAE", "korean air": "KAL",
-		"cathay": "CPA", "japan air": "JAL", "all nippon": "ANA", "iberia": "IBE", "air france": "AFR",
-		"klm": "KLM", "hawaiian": "HAL", "ameriflight": "AMF", "connie": "CKS"
+		"jet blue": "JBU", "hawaiian": "HAL", "sun country": "SCX", "allegiant": "AAY", "moxy": "MXY",
+		"breeze": "MXY", "avelo": "VXP", "envoy": "ENY", "skywest": "SKW", "sky west": "SKW",
+		"air shuttle": "ASH", "brickyard": "RPA", "blue streak": "JIA", "piedmont": "PDT",
+		"endeavor": "EDV", "flagship": "EDV", "lindbergh": "GJS", "horizon": "QXE", "commutair": "UCA",
+		"commuter": "UCA", "wisconsin": "AWI", "silver wings": "SIL", "cair": "KAP", "southern express": "SOO",
+		"contour": "VTE",
+		// Cargo, charter and business
+		"fedex": "FDX", "fed ex": "FDX", "ups": "UPS", "giant": "GTI", "polar": "PAC", "connie": "CKS",
+		"abex": "ABX", "air transport": "ATN", "western global": "WGN", "ameriflight": "AMF",
+		"amflight": "AMF", "execjet": "EJA", "flexjet": "LXJ", "reach": "RCH", "omni express": "OAE",
+		"cactus": "AWE",
+		// Canada and Latin America
+		"air canada": "ACA", "jazz": "JZA", "westjet": "WJA", "porter": "POE", "flair": "FLE",
+		"transat": "TSC", "volaris": "VOI", "aeromexico": "AMX", "aerobus": "VIV", "copa": "CMP",
+		"avianca": "AVA", "lan": "LAN", "lan chile": "LAN", "tam": "TAM", "caribbean airlines": "BWA",
+		"bahamas": "BHS",
+		// Europe, Middle East, Africa
+		"speedbird": "BAW", "virgin": "VIR", "shamrock": "EIN", "lufthansa": "DLH", "air france": "AFR",
+		"airfrans": "AFR", "klm": "KLM", "iberia": "IBE", "swiss": "SWR", "austrian": "AUA",
+		"scandinavian": "SAS", "finnair": "FIN", "iceair": "ICE", "air portugal": "TAP", "turkish": "THY",
+		"itarrow": "ITY", "lot": "LOT", "edelweiss": "EDW", "condor": "CFG", "el al": "ELY",
+		"emirates": "UAE", "etihad": "ETD", "qatari": "QTR", "saudia": "SVA", "jordanian": "RJA",
+		"ethiopian": "ETH", "royalair maroc": "RAM", "egyptair": "MSR",
+		// Asia-Pacific
+		"qantas": "QFA", "new zealand": "ANZ", "korean air": "KAL", "asiana": "AAR", "japan air": "JAL",
+		"all nippon": "ANA", "cathay": "CPA", "singapore": "SIA", "eva": "EVA", "dynasty": "CAL",
+		"air china": "CCA", "china eastern": "CES", "china southern": "CSN", "philippine": "PAL",
+		"air india": "AIC", "starwalker": "SJX"
 	};
 	var AIRLINE_CODES = {};
 	for (var name in AIRLINES) AIRLINE_CODES[AIRLINES[name]] = true;
@@ -133,23 +155,63 @@
 		return i;
 	}
 
+	// Aircraft types GA pilots and controllers say before an abbreviated tail ("Cessna three alpha bravo").
+	var AIRCRAFT_TYPES = {
+		"cessna": 1, "skyhawk": 1, "skylane": 1, "caravan": 1, "citation": 1, "piper": 1, "cherokee": 1,
+		"archer": 1, "warrior": 1, "seminole": 1, "cirrus": 1, "beech": 1, "beechcraft": 1, "bonanza": 1,
+		"baron": 1, "king air": 1, "mooney": 1, "diamond": 1, "pilatus": 1, "gulfstream": 1, "lear": 1,
+		"learjet": 1, "challenger": 1, "falcon": 1, "hawker": 1, "phenom": 1, "embraer": 1, "global": 1,
+		"helicopter": 1, "experimental": 1, "november": 1
+	};
+	var US_TAIL = /^[1-9]\d{0,4}[A-Z]{0,2}$/;
+
+	// Reads spoken registration characters, keeping the longest prefix that is a valid US tail.
+	function readTail(t, j, pattern) {
+		var s = "", best = null;
+		while (j < t.length && s.length < 6) {
+			var num = PHONETIC[t[j]] ? null : readNumber(t, j);
+			if (PHONETIC[t[j]]) { s += PHONETIC[t[j]]; j++; }
+			else if (num) { s += num.text; j = num.next; }
+			else break;
+			if (s.length <= 5 && pattern.test(s)) best = { text: s, next: j };
+		}
+		return best;
+	}
+
+	// Letters after the flight number ("Etihad nine zero mike heavy" -> ETD90M) are
+	// part of many international callsigns but can also be a taxiway, so offer both.
+	function withSuffix(code, n, t) {
+		var j = n.next, letters = "";
+		while (letters.length < 2 && PHONETIC[t[j]] && t[j] !== "november") letters += PHONETIC[t[j++]];
+		var heavy = /^(heavy|super)$/.test(t[j]);
+		var base = code + n.text;
+		var res = { callsign: base, end: n.next };
+		if (letters) res.options = [base + letters].concat(letters.length > 1 ? [base + letters[0]] : [], [base]);
+		if (heavy) res.end = j + 1;
+		else if (/^(heavy|super)$/.test(t[n.next])) res.end = n.next + 1;
+		return res;
+	}
+
 	function readCallsign(t, from, to) {
 		for (var i = from; i < to; i++) {
-			var w = t[i];
+			var w = t[i], res = null;
 			var m = /^([a-z]{3})(\d{1,4}[a-z]{0,2})$/.exec(w);
-			if (m) return { callsign: w.toUpperCase(), start: i, end: i + 1 };
-			if (/^n\d{1,5}[a-z]{0,2}$/.test(w)) return { callsign: w.toUpperCase(), start: i, end: i + 1 };
-			if (/^[a-z]{3}$/.test(w) && AIRLINE_CODES[w.toUpperCase()]) {
-				var n0 = readNumber(t, i + 1);
-				if (n0) return { callsign: w.toUpperCase() + n0.text, start: i, end: n0.next };
+			if (m) res = { callsign: w.toUpperCase(), end: i + 1 };
+			else if (/^n\d{1,5}[a-z]{0,2}$/.test(w)) res = { callsign: w.toUpperCase(), end: i + 1 };
+			else if (/^[a-z]{3}$/.test(w) && AIRLINE_CODES[w.toUpperCase()] && readNumber(t, i + 1)) {
+				res = withSuffix(w.toUpperCase(), readNumber(t, i + 1), t);
 			}
-			for (var len = 2; len >= 1; len--) {
-				var name = t.slice(i, i + len).join(" ");
-				if (AIRLINES[name]) {
-					var n = readNumber(t, i + len);
-					if (n) return { callsign: AIRLINES[name] + n.text, start: i, end: n.next };
+			for (var len = 2; !res && len >= 1; len--) {
+				var name = t.slice(i, i + len).join(" "), n;
+				if (AIRLINES[name] && (n = readNumber(t, i + len))) res = withSuffix(AIRLINES[name], n, t);
+				else if (AIRCRAFT_TYPES[name]) {
+					var full = name === "november" && readTail(t, i + 1, US_TAIL);
+					var part = !full && readTail(t, i + len, /^\d{0,5}[A-Z]{0,2}$/);
+					if (full) res = { callsign: "N" + full.text, end: full.next };
+					else if (part && part.text.length >= 2) res = { tail: part.text, end: part.next };
 				}
 			}
+			if (res) { res.start = i; return res; }
 		}
 		return null;
 	}
@@ -166,7 +228,12 @@
 		var firstKeyword = t.length;
 		for (var k = 0; k < t.length; k++) if (LIST_STOP[t[k]]) { firstKeyword = k; break; }
 		var cs = readCallsign(t, 0, firstKeyword);
-		if (cs) res.callsign = cs.callsign;
+		function useCallsign(c) {
+			if (c.callsign) res.callsign = c.callsign;
+			if (c.options) res.callsignOptions = c.options;
+			if (c.tail) res.tail = c.tail;
+		}
+		if (cs) useCallsign(cs);
 
 		var i = 0;
 		while (i < t.length) {
@@ -204,14 +271,14 @@
 			}
 			i++;
 		}
-		if (!res.callsign) {
-			cs = readCallsign(t, 0, t.length);
-			if (cs && !PHONETIC[t[cs.start]]) res.callsign = cs.callsign;
+		if (!res.callsign && !res.tail) {
+			var late = readCallsign(t, 0, t.length);
+			if (late && !PHONETIC[t[late.start]]) useCallsign(late);
 		}
 		// Misheard airline ("air berlin four six three") or a number-only callsign
 		// ("six seven nine, taxi to..."): keep the flight number so the caller can
 		// match it against aircraft at the airport.
-		if (!res.callsign) {
+		if (!res.callsign && !res.tail) {
 			for (var n = 0; n < firstKeyword; n++) {
 				var num = readNumber(t, n);
 				if (num && num.text.length >= 2 && num.text.length <= 4 && num.text[0] !== "0") { res.flightNumber = num.text; break; }
