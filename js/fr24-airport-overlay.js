@@ -179,19 +179,22 @@
 		atcLog
 	]);
 
+	// Flightradar24's flight details open on the left and its zoom buttons sit at the
+	// right edge, so start just inside those; the title bar drags the panel elsewhere.
+	var titleBar = el("div", { title: "Drag to move", style: "display:flex;justify-content:space-between;align-items:center;font-weight:600;margin-bottom:4px;cursor:move;user-select:none;" }, [
+		"Airport overlays",
+		el("button", {
+			textContent: "\u00d7", title: "Remove overlays",
+			style: "background:none;border:0;color:#fff;font-size:18px;cursor:pointer;line-height:1;",
+			onclick: function () { state.destroy(); }
+		})
+	]);
 	state.panel = el("div", {
-		style: "position:fixed;top:80px;left:12px;z-index:2147483647;width:260px;max-height:70vh;overflow:auto;" +
+		style: "position:fixed;top:80px;right:70px;z-index:2147483647;width:260px;max-height:70vh;overflow:auto;" +
 			"background:rgba(20,24,32,0.92);color:#fff;font:13px/1.4 system-ui,sans-serif;padding:10px 12px;" +
 			"border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);"
 	}, [
-		el("div", { style: "display:flex;justify-content:space-between;align-items:center;font-weight:600;margin-bottom:4px;" }, [
-			"Airport overlays",
-			el("button", {
-				textContent: "\u00d7", title: "Remove overlays",
-				style: "background:none;border:0;color:#fff;font-size:18px;cursor:pointer;line-height:1;",
-				onclick: function () { state.destroy(); }
-			})
-		]),
+		titleBar,
 		el("label", { style: "display:flex;align-items:center;gap:6px;margin:4px 0 8px;" }, [
 			"Opacity",
 			el("input", {
@@ -211,6 +214,34 @@
 		state.panel.addEventListener(type, function (e) { e.stopPropagation(); });
 	});
 	document.body.appendChild(state.panel);
+
+	var POS_KEY = "fr24AirportOverlayPanelPos";
+	function placePanel(left, top) {
+		var p = state.panel;
+		left = Math.max(0, Math.min(left, window.innerWidth - p.offsetWidth));
+		top = Math.max(0, Math.min(top, window.innerHeight - 40));
+		p.style.left = left + "px";
+		p.style.top = top + "px";
+		p.style.right = "auto";
+		return { left: left, top: top };
+	}
+	try {
+		var saved = JSON.parse(localStorage.getItem(POS_KEY));
+		if (saved) placePanel(saved.left, saved.top);
+	} catch (e) {}
+	titleBar.addEventListener("mousedown", function (e) {
+		if (e.button !== 0 || e.target.tagName === "BUTTON") return;
+		e.preventDefault();
+		var r = state.panel.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top, pos;
+		function move(ev) { pos = placePanel(ev.clientX - dx, ev.clientY - dy); }
+		function up() {
+			document.removeEventListener("mousemove", move, true);
+			document.removeEventListener("mouseup", up, true);
+			try { if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch (err) {}
+		}
+		document.addEventListener("mousemove", move, true);
+		document.addEventListener("mouseup", up, true);
+	});
 	setStatus("Pan or zoom the map once to attach the overlays\u2026");
 
 	function build(map, data) {
