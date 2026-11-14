@@ -206,6 +206,12 @@ class Segmenter:
         self.pre.clear()
 
 
+def input_devices():
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                         capture_output=True, text=True).stderr
+    return [line.split("] ", 2)[2] for line in out.split("audio devices:")[-1].splitlines() if "] [" in line]
+
+
 def ffmpeg_cmd(args):
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin"]
     if args.device:
@@ -251,16 +257,21 @@ def main():
     args = ap.parse_args()
 
     if args.list_devices:
-        out = subprocess.run(["ffmpeg", "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
-                             capture_output=True, text=True).stderr
-        audio = out.split("audio devices:")[-1]
         print("Audio input devices:")
-        for line in audio.splitlines():
-            if "] [" in line:
-                print("  " + line.split("] ", 1)[1])
+        for i, name in enumerate(input_devices()):
+            print(f"  [{i}] {name}")
         return
     if not (args.device or args.url or args.file):
         ap.error("one of --device, --url or --file is required")
+    if args.device:
+        names = input_devices()
+        if args.device not in names and not (args.device.isdigit() and int(args.device) < len(names)):
+            hint = ""
+            if "speaker" in args.device.lower() or "output" in args.device.lower():
+                hint = ("\nSpeakers and other outputs can't be recorded. To capture what your Mac plays, install "
+                        "BlackHole (brew install blackhole-2ch), add it to a Multi-Output Device in Audio MIDI "
+                        "Setup, and use --device \"BlackHole 2ch\".")
+            sys.exit(f"No audio input named \"{args.device}\". Inputs on this Mac:\n  " + "\n  ".join(names) + hint)
 
     from faster_whisper import WhisperModel
 
