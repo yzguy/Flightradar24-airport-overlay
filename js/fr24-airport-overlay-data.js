@@ -49,6 +49,7 @@ var fr24_airport_overlay_data = [
 		uploader: "OpenStreetMap contributors",
 		email: "",
 		date: 2026,
-		image: "KDFW.png"
+		image: "KDFW.png",
+		taxiGraph: "KDFW.json"
 	},
 	]

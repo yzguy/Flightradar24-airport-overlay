@@ -12,7 +12,7 @@ This addon aims to label taxiways, runways and other visual markings on Flightra
 
 Add the code below as your bookmark/favorite URL.
 
-`javascript:(function(){var s=document.createElement('script');s.id='fr24-airport-overlay';s.src='https://cdn.jsdelivr.net/gh/yzguy/Flightradar24-airport-overlay@main/js/fr24-airport-overlay.js?t='+Date.now();document.body.appendChild(s);})()`
+`javascript:(function(){var r='yzguy/Flightradar24-airport-overlay';function go(v){var s=document.createElement('script');s.id='fr24-airport-overlay';s.src='https://cdn.jsdelivr.net/gh/'+r+'@'+v+'/js/fr24-airport-overlay.js';document.body.appendChild(s);}fetch('https://api.github.com/repos/'+r+'/commits/main').then(function(x){return x.json()}).then(function(j){go(j.sha||'main')},function(){go('main')});})()`
 
 1. Open the Flightradar24 live [map](https://www.flightradar24.com/).
 2. Click the bookmark. An "Airport overlays" panel appears.
@@ -20,7 +20,20 @@ Add the code below as your bookmark/favorite URL.
 
 Click an airport in the panel to zoom to it, untick it to hide it, or use the slider to change opacity. Clicking the bookmark again shows/hides the panel; the × button removes everything. Airport diagrams are about 0.5MB each, so they may take a few seconds to appear.
 
-If you host a fork, replace `yzguy` in the URL with your GitHub username. Images and airport data are loaded relative to wherever the script is served from. jsDelivr caches `@main` for up to 12 hours; use `@<commit-sha>` to pick up changes immediately.
+The bookmark asks GitHub for the latest commit on `main` and loads that exact version from jsDelivr, so changes show up immediately instead of waiting for jsDelivr's 12-hour cache of `@main`. If you host a fork, replace `yzguy` in the URL with your GitHub username. Images and airport data are loaded relative to wherever the script is served from.
+
+### Taxi instructions:
+
+Airports with taxiway data (currently KDFW) get a **Taxi instruction** box in the panel. Type an instruction the way ATC says it, or as shorthand, and press Enter:
+
+```
+American 2345, runway 17C, taxi via Kilo, Echo Juliet, hold short of runway 17R
+AAL2345 17C via K EJ hold short 17R
+```
+
+The addon looks up the aircraft by callsign using [airplanes.live](https://airplanes.live/) ADS-B data, puts a ring around it (updated every few seconds), and draws the route along the named taxiways with red bars at hold-short points. Without a runway or hold short, it routes onto the last taxiway and highlights it; if the aircraft isn't found, it highlights the named taxiways or routes from the first one. Callsigns that are one digit off from a single flight of the same airline are matched to it.
+
+Run `node tools/test_taxi_route.js` to test the instruction parser and router against the KDFW data.
 
 ### Adding an airport:
 
@@ -30,7 +43,7 @@ If you host a fork, replace `yzguy` in the URL with your GitHub username. Images
 python3 tools/osm_airport_overlay.py KDFW
 ```
 
-It writes `images/airports/<ICAO>.png` and prints an entry to add to `js/fr24-airport-overlay-data.js`. Diagrams generated this way contain data © OpenStreetMap contributors, available under the [ODbL](https://opendatacommons.org/licenses/odbl/).
+It writes `images/airports/<ICAO>.png` and `data/airports/<ICAO>.json` (the taxiway network for taxi instructions), and prints an entry to add to `js/fr24-airport-overlay-data.js`. Diagrams generated this way contain data © OpenStreetMap contributors, available under the [ODbL](https://opendatacommons.org/licenses/odbl/).
 
 ### Disclaimer:
 

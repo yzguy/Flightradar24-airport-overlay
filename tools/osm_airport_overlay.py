@@ -3,7 +3,8 @@
 
 Usage: python3 tools/osm_airport_overlay.py KDFW [--size 3000]
 
-Writes images/airports/<ICAO>.png and prints the entry to paste into
+Writes images/airports/<ICAO>.png and data/airports/<ICAO>.json (the
+taxiway network used for taxi routes), and prints the entry to paste into
 js/fr24-airport-overlay-data.js. Requires Pillow.
 """
 import argparse
@@ -93,6 +94,27 @@ def ways(elements):
             ]
             if rings:
                 yield e["tags"], rings, True
+
+
+def taxi_graph(icao, elements):
+    """Taxiway/runway centerlines with shared OSM node ids, for routing in js/fr24-taxi-route.js."""
+    nodes, out_ways = {}, []
+    for e in elements:
+        kind = e.get("tags", {}).get("aeroway")
+        if e["type"] != "way" or kind not in ("taxiway", "taxilane", "runway"):
+            continue
+        ids = e.get("nodes", [])
+        if len(ids) < 2 or ids[0] == ids[-1]:
+            continue
+        for nid, p in zip(ids, e["geometry"]):
+            nodes[str(nid)] = [round(p["lat"], 7), round(p["lon"], 7)]
+        out_ways.append({"type": kind, "ref": e["tags"].get("ref", ""), "nodes": ids})
+    return {
+        "icao": icao,
+        "attribution": "Data \u00a9 OpenStreetMap contributors (ODbL)",
+        "nodes": nodes,
+        "ways": out_ways,
+    }
 
 
 def main():
@@ -245,6 +267,11 @@ def main():
     out = os.path.join(REPO, "images", "airports", f"{icao}.png")
     img.save(out, optimize=True)
 
+    graph_out = os.path.join(REPO, "data", "airports", f"{icao}.json")
+    os.makedirs(os.path.dirname(graph_out), exist_ok=True)
+    with open(graph_out, "w") as f:
+        json.dump(taxi_graph(icao, elements), f, separators=(",", ":"))
+
     tags = a.get("tags", {})
     entry = {
         "neBoundLat": round(n, 6), "neBoundLng": round(e, 6),
@@ -253,8 +280,10 @@ def main():
         "IATA": tags.get("iata", ""), "ICAO": icao,
         "uploader": "OpenStreetMap contributors", "email": "",
         "date": date.today().year, "image": f"{icao}.png",
+        "taxiGraph": f"{icao}.json",
     }
     print(f"Wrote {out} ({W}x{H}, {os.path.getsize(out) // 1024} KB, {metres_per_px:.1f} m/px)", file=sys.stderr)
+    print(f"Wrote {graph_out} ({os.path.getsize(graph_out) // 1024} KB)", file=sys.stderr)
     print("\t{")
     for k, v in entry.items():
         print(f"\t\t{k}: {json.dumps(v)},")
