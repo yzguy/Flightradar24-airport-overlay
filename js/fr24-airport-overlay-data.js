@@ -76,7 +76,20 @@ var fr24_airport_overlay_data = [
 		email: "",
 		date: 2014,
 		image: "CYYC.png"
-	},	
+	},
+	{
+		neBoundLat: 32.926497,
+		neBoundLng: -96.990131,
+		swBoundLat: 32.866007,
+		swBoundLng: -97.08944,
+		name: "Dallas/Fort Worth International Airport",
+		IATA: "DFW",
+		ICAO: "KDFW",
+		uploader: "OpenStreetMap contributors",
+		email: "",
+		date: 2026,
+		image: "KDFW.png"
+	},
 	/*
 	{
 		neBoundLat: -33.92273053019009,
