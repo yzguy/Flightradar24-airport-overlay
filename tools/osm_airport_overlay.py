@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Render an airport overlay image from OpenStreetMap data.
 
-Usage: python3 tools/osm_airport_overlay.py KDFW [--size 3000]
+Usage: python3 tools/osm_airport_overlay.py KDFW [--size 3000] [--entry-only]
 
 Writes images/airports/<ICAO>.png and data/airports/<ICAO>.json (the
-taxiway network used for taxi routes), and prints the entry to paste into
+taxiway network used for taxi routes), and adds the airport to
 js/fr24-airport-overlay-data.js. Requires Pillow.
 """
 import argparse
@@ -133,6 +133,8 @@ def main():
     ap.add_argument("--size", type=int, default=3000, help="pixels on the longest side")
     ap.add_argument("--overpass", action="append", metavar="URL",
                     help="Overpass API endpoint to use instead of the built-in list (repeatable)")
+    ap.add_argument("--entry-only", action="store_true",
+                    help="only add the airport list entry for an image and taxi graph generated earlier")
     args = ap.parse_args()
     icao = args.icao.upper()
     servers = args.overpass or OVERPASS_SERVERS
@@ -147,13 +149,37 @@ def main():
     dlng = PAD_M / (111320.0 * math.cos(math.radians((b["minlat"] + b["maxlat"]) / 2)))
     s, w, n, e = b["minlat"] - dlat, b["minlon"] - dlng, b["maxlat"] + dlat, b["maxlon"] + dlng
 
-    data = overpass(f'[out:json][timeout:120];(way["aeroway"]({s},{w},{n},{e});relation["aeroway"]({s},{w},{n},{e}););out geom;', servers)
-    elements = data["elements"]
-
     x0, y0 = mercator(n, w)
     x1, y1 = mercator(s, e)
     scale = args.size / max(x1 - x0, y1 - y0)
     W, H = round((x1 - x0) * scale), round((y1 - y0) * scale)
+
+    tags = a.get("tags", {})
+    entry = {
+        "neBoundLat": round(n, 6), "neBoundLng": round(e, 6),
+        "swBoundLat": round(s, 6), "swBoundLng": round(w, 6),
+        "name": tags.get("name:en") or tags.get("name", icao),
+        "IATA": tags.get("iata", ""), "ICAO": icao,
+        "uploader": "OpenStreetMap contributors", "email": "",
+        "date": date.today().year, "image": f"{icao}.png",
+        "taxiGraph": f"{icao}.json",
+    }
+    out = os.path.join(REPO, "images", "airports", f"{icao}.png")
+    graph_out = os.path.join(REPO, "data", "airports", f"{icao}.json")
+
+    if args.entry_only:
+        # The bounds only fit the existing image if OpenStreetMap's airport outline hasn't changed.
+        if not (os.path.exists(out) and os.path.exists(graph_out)):
+            sys.exit(f"{out} or {graph_out} is missing; run without --entry-only to generate them")
+        size = Image.open(out).size
+        if size != (W, H):
+            sys.exit(f"{out} is {size[0]}x{size[1]} but the current OpenStreetMap bounds give {W}x{H}; "
+                     "regenerate the image by running without --entry-only")
+        update_data_file(entry)
+        return
+
+    data = overpass(f'[out:json][timeout:120];(way["aeroway"]({s},{w},{n},{e});relation["aeroway"]({s},{w},{n},{e}););out geom;', servers)
+    elements = data["elements"]
     ss = SUPERSAMPLE
     metres_per_px = 40075016.686 * math.cos(math.radians((s + n) / 2)) / scale
 
@@ -277,30 +303,42 @@ def main():
     d.text((W * ss - (r - l) - 8 * ss, H * ss - (btm - t) - 8 * ss), attr, font=af, fill=(255, 255, 255, 200))
 
     img = img.resize((W, H), Image.LANCZOS)
-    out = os.path.join(REPO, "images", "airports", f"{icao}.png")
     img.save(out, optimize=True)
 
-    graph_out = os.path.join(REPO, "data", "airports", f"{icao}.json")
     os.makedirs(os.path.dirname(graph_out), exist_ok=True)
     with open(graph_out, "w") as f:
         json.dump(taxi_graph(icao, elements), f, separators=(",", ":"))
 
-    tags = a.get("tags", {})
-    entry = {
-        "neBoundLat": round(n, 6), "neBoundLng": round(e, 6),
-        "swBoundLat": round(s, 6), "swBoundLng": round(w, 6),
-        "name": tags.get("name:en") or tags.get("name", icao),
-        "IATA": tags.get("iata", ""), "ICAO": icao,
-        "uploader": "OpenStreetMap contributors", "email": "",
-        "date": date.today().year, "image": f"{icao}.png",
-        "taxiGraph": f"{icao}.json",
-    }
     print(f"Wrote {out} ({W}x{H}, {os.path.getsize(out) // 1024} KB, {metres_per_px:.1f} m/px)", file=sys.stderr)
     print(f"Wrote {graph_out} ({os.path.getsize(graph_out) // 1024} KB)", file=sys.stderr)
-    print("\t{")
-    for k, v in entry.items():
-        print(f"\t\t{k}: {json.dumps(v)},")
-    print("\t},")
+    update_data_file(entry)
+
+
+def update_data_file(entry):
+    """Add or replace this airport in js/fr24-airport-overlay-data.js, keeping the list sorted by ICAO."""
+    path = os.path.join(REPO, "js", "fr24-airport-overlay-data.js")
+    with open(path) as f:
+        src = f.read()
+    entries, cur = [], None
+    for line in src.splitlines():
+        line = line.strip()
+        if line == "{":
+            cur = {}
+        elif line.startswith("}") and cur is not None:
+            entries.append(cur)
+            cur = None
+        elif cur is not None and ":" in line:
+            k, v = line.split(":", 1)
+            cur[k.strip()] = json.loads(v.strip().rstrip(","))
+    action = "Updated" if any(x["ICAO"] == entry["ICAO"] for x in entries) else "Added"
+    entries = sorted([x for x in entries if x["ICAO"] != entry["ICAO"]] + [entry], key=lambda x: x["ICAO"])
+    lines = ["var fr24_airport_overlay_data = ["]
+    for x in entries:
+        lines += ["\t{"] + [f"\t\t{k}: {json.dumps(v)}," for k, v in x.items()] + ["\t},"]
+    lines.append("\t]")
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"{action} {entry['ICAO']} in {os.path.relpath(path, REPO)}", file=sys.stderr)
 
 
 if __name__ == "__main__":
