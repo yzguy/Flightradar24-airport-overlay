@@ -12,7 +12,7 @@ This addon aims to label taxiways, runways and other visual markings on Flightra
 
 Add the code below as your bookmark/favorite URL.
 
-`javascript:(function(){var s=document.createElement('script');s.id='fr24-airport-overlay';s.src='https://cdn.jsdelivr.net/gh/mkyung/Flightradar24-airport-overlay@master/js/fr24-airport-overlay.js';document.body.appendChild(s);})()`
+`javascript:(function(){var s=document.createElement('script');s.id='fr24-airport-overlay';s.src='https://cdn.jsdelivr.net/gh/yzguy/Flightradar24-airport-overlay@main/js/fr24-airport-overlay.js';document.body.appendChild(s);})()`
 
 1. Open the Flightradar24 live [map](https://www.flightradar24.com/).
 2. Click the bookmark. An "Airport overlays" panel appears.
@@ -20,7 +20,7 @@ Add the code below as your bookmark/favorite URL.
 
 Click an airport in the panel to zoom to it, untick it to hide it, or use the slider to change opacity. Clicking the bookmark again shows/hides the panel; the × button removes everything. Airport diagrams are about 0.5MB each, so they may take a few seconds to appear.
 
-If you host a fork, replace `mkyung` in the URL with your GitHub username. Images and airport data are loaded relative to wherever the script is served from. jsDelivr caches `@master` for up to 12 hours; use `@<commit-sha>` to pick up changes immediately.
+If you host a fork, replace `yzguy` in the URL with your GitHub username. Images and airport data are loaded relative to wherever the script is served from. jsDelivr caches `@main` for up to 12 hours; use `@<commit-sha>` to pick up changes immediately.
 
 ### Disclaimer:
 
