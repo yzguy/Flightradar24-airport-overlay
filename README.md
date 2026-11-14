@@ -1,7 +1,7 @@
 # Flightradar24-airport-overlay
 ## An addon for Flightradar24 web
 
-![](http://i.imgur.com/tEJLOxz.jpg)
+![](https://i.imgur.com/tEJLOxz.jpg)
 
 ### Background:
 Inspired by [Hong Kong FIR (VHHK) FR24 Overlay](https://github.com/microtony/fr24-overlay-vhhk).
@@ -12,9 +12,15 @@ This addon aims to label taxiways, runways and other visual markings on Flightra
 
 Add the code below as your bookmark/favorite URL.
 
-`javascript:(function(){$('body').append("<script src='//rawgit.com/mkyung/Flightradar24-airport-overlay/master/js/fr24-airport-overlay-data.js' />"); setTimeout(function(){$('body').append("<script src='//rawgit.com/mkyung/Flightradar24-airport-overlay/master/js/fr24-airport-overlay.js' id='fr24-airport-overlay' />")}, 100);})()`
+`javascript:(function(){var s=document.createElement('script');s.id='fr24-airport-overlay';s.src='https://cdn.jsdelivr.net/gh/mkyung/Flightradar24-airport-overlay@master/js/fr24-airport-overlay.js';document.body.appendChild(s);})()`
 
-Call this bookmark while you are on Flightradar24 main [page](http://www.flightradar24.com/). It would take a few seconds to load airport diagrams (about 0.5MB each)
+1. Open the Flightradar24 live [map](https://www.flightradar24.com/).
+2. Click the bookmark. An "Airport overlays" panel appears.
+3. Pan or zoom the map once so the overlays can attach to it.
+
+Click an airport in the panel to zoom to it, untick it to hide it, or use the slider to change opacity. Clicking the bookmark again shows/hides the panel; the × button removes everything. Airport diagrams are about 0.5MB each, so they may take a few seconds to appear.
+
+If you host a fork, replace `mkyung` in the URL with your GitHub username. Images and airport data are loaded relative to wherever the script is served from. jsDelivr caches `@master` for up to 12 hours; use `@<commit-sha>` to pick up changes immediately.
 
 ### Disclaimer:
 
