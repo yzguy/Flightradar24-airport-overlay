@@ -543,7 +543,7 @@
 	// Ring the aircraft that was just spoken to; it fades after 15 s.
 	function highlightSpeaker(airport, callsign, note) {
 		locate(airport, callsign).then(function (found) {
-			if (!found) { note.textContent = "(not found)"; return; }
+			if (!found) { note.textContent = "(not found near " + airport.ICAO + ")"; return; }
 			if (!found.exact) note.textContent = "(\u2248 " + (found.ac.flight || "").trim() + ")";
 			clearSpeaker();
 			atc.speaker = new google.maps.Marker({
